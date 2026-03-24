@@ -7,6 +7,8 @@ const MARKETED_BY_DEFAULT =
 const CUSTOMER_CARE_DEFAULT =
   'Contact customer care officer at ucwaterpurifier@urbancompany.com, +911244577306 or reach out at Urban Company Limited, 7th floor, GoWorks, Plot 183, Udyog Vihar Phase 1, Gurugram, Haryana - 122008'
 
+const F = '"Open Sauce One", sans-serif'
+
 // ─── Initial form state factories ────────────────────────────────────────────
 const makeInnerState = () => ({
   productName: '',
@@ -23,7 +25,6 @@ const makeInnerState = () => ({
   marketedBy: MARKETED_BY_DEFAULT,
   manufacturedBy: '',
   customerCare: CUSTOMER_CARE_DEFAULT,
-  // toggles
   showNetWeight: true,
   showGrossWeight: true,
   showManufacturedOn: true,
@@ -42,7 +43,6 @@ const makeOuterState = () => ({
   manufacturedOn: '',
   marketedBy: MARKETED_BY_DEFAULT,
   manufacturedBy: '',
-  // toggles
   showManufacturedOn: true,
 })
 
@@ -67,7 +67,7 @@ function Toggle({ checked, onChange }) {
   )
 }
 
-// ─── Form field components ────────────────────────────────────────────────────
+// ─── Form field ───────────────────────────────────────────────────────────────
 function Field({ label, name, value, onChange, placeholder = '', multiline = false, optional = false, shown, onToggle }) {
   return (
     <div className="flex flex-col gap-1">
@@ -103,24 +103,44 @@ function Field({ label, name, value, onChange, placeholder = '', multiline = fal
   )
 }
 
-// ─── Label Preview ─────────────────────────────────────────────────────────────
-// All px values mirror the Figma spec exactly (320×320, paddings, font sizes).
-// Font sizes are left in px so the 320px canvas is pixel-perfect.
+// ─── Label building blocks ────────────────────────────────────────────────────
 
-const LABEL_STYLE = {
-  fontFamily: '"Open Sauce One", sans-serif',
-}
-
+// Each row: label name left (80px fixed) | value right (flex)
+// Followed by a 0.5px #EEEEEE divider line
 function LabelRow({ label, value }) {
-  if (!value) return null
+  if (value === null || value === undefined || value === '') return null
   return (
-    <div style={{ marginBottom: 0 }}>
-      <div style={{ fontSize: 5, fontWeight: 600, color: '#757575', lineHeight: 1.4, fontFamily: '"Open Sauce One", sans-serif' }}>
-        {label}
+    <div>
+      <div style={{ display: 'flex', alignItems: 'flex-start', paddingTop: 4, paddingBottom: 4 }}>
+        <div
+          style={{
+            width: 80,
+            minWidth: 80,
+            fontSize: 5,
+            fontWeight: 600,
+            color: '#757575',
+            lineHeight: 1.5,
+            fontFamily: F,
+            paddingRight: 6,
+            flexShrink: 0,
+          }}
+        >
+          {label}
+        </div>
+        <div
+          style={{
+            flex: 1,
+            fontSize: 5,
+            fontWeight: 400,
+            color: '#757575',
+            lineHeight: 1.5,
+            fontFamily: F,
+          }}
+        >
+          {value}
+        </div>
       </div>
-      <div style={{ fontSize: 5, fontWeight: 400, color: '#757575', lineHeight: 1.4, fontFamily: '"Open Sauce One", sans-serif' }}>
-        {value}
-      </div>
+      <div style={{ height: 0.5, background: '#EEEEEE' }} />
     </div>
   )
 }
@@ -134,40 +154,39 @@ function LogoBar() {
         alignItems: 'center',
         justifyContent: 'space-between',
         flexShrink: 0,
+        paddingTop: 2,
       }}
     >
-      {/* NATIVE logo placeholder — 8×64px */}
+      {/* NATIVE placeholder — 8h × 64w px */}
       <div
         style={{
           width: 64,
           height: 8,
-          background: '#D1D5DB',
+          background: '#E5E7EB',
           borderRadius: 1,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          overflow: 'hidden',
         }}
       >
-        <span style={{ fontSize: 4, fontWeight: 700, color: '#9CA3AF', letterSpacing: 1, fontFamily: '"Open Sauce One", sans-serif' }}>
+        <span style={{ fontSize: 4, fontWeight: 700, color: '#9CA3AF', letterSpacing: 1, fontFamily: F }}>
           NATIVE LOGO
         </span>
       </div>
 
-      {/* Urban Company logo placeholder — 14×49px */}
+      {/* UC placeholder — 14h × 49w px */}
       <div
         style={{
           width: 49,
           height: 14,
-          background: '#D1D5DB',
+          background: '#E5E7EB',
           borderRadius: 1,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          overflow: 'hidden',
         }}
       >
-        <span style={{ fontSize: 4, fontWeight: 700, color: '#9CA3AF', letterSpacing: 0.5, fontFamily: '"Open Sauce One", sans-serif' }}>
+        <span style={{ fontSize: 4, fontWeight: 700, color: '#9CA3AF', letterSpacing: 0.5, fontFamily: F }}>
           UC LOGO
         </span>
       </div>
@@ -175,21 +194,22 @@ function LogoBar() {
   )
 }
 
+// ─── Inner Label ──────────────────────────────────────────────────────────────
 function InnerLabel({ data }) {
   const fields = [
-    { label: 'SKU Code', value: data.skuCode },
+    { label: 'SKU code', value: data.skuCode },
     { label: 'Commodity', value: data.commodity },
     { label: 'MRP', value: data.mrp },
-    { label: 'Unit Sale Price', value: data.unitSalePrice },
-    { label: 'Net Quantity', value: data.netQuantity },
-    { label: 'Box Dimension', value: data.boxDimension },
-    ...(data.showNetWeight ? [{ label: 'Net Weight', value: data.netWeight }] : []),
-    ...(data.showGrossWeight ? [{ label: 'Gross Weight', value: data.grossWeight }] : []),
-    { label: 'Country of Origin', value: data.countryOfOrigin },
-    ...(data.showManufacturedOn ? [{ label: 'Manufactured On', value: data.manufacturedOn }] : []),
-    { label: 'Marketed By', value: data.marketedBy },
-    { label: 'Manufactured By', value: data.manufacturedBy },
-    { label: 'Customer Care', value: data.customerCare },
+    { label: 'Unit sale price', value: data.unitSalePrice },
+    { label: 'Net quantity', value: data.netQuantity },
+    { label: 'Packaging dimensions', value: data.boxDimension },
+    ...(data.showNetWeight ? [{ label: 'Net weight', value: data.netWeight }] : []),
+    ...(data.showGrossWeight ? [{ label: 'Gross weight', value: data.grossWeight }] : []),
+    { label: 'Country of origin', value: data.countryOfOrigin },
+    ...(data.showManufacturedOn ? [{ label: 'Manufactured on', value: data.manufacturedOn }] : []),
+    { label: 'Marketed by', value: data.marketedBy },
+    { label: 'Manufactured by', value: data.manufacturedBy },
+    { label: 'Customer care', value: data.customerCare },
   ]
 
   return (
@@ -202,64 +222,54 @@ function InnerLabel({ data }) {
         display: 'flex',
         flexDirection: 'column',
         boxSizing: 'border-box',
-        ...LABEL_STYLE,
+        fontFamily: F,
       }}
     >
-      {/* Product name */}
+      {/* Product name: Medium 14px, #757575 */}
       <div
         style={{
           fontSize: 14,
           fontWeight: 500,
-          color: '#1a1a1a',
+          color: '#757575',
           lineHeight: 1.3,
-          marginBottom: 8,
-          fontFamily: '"Open Sauce One", sans-serif',
+          marginBottom: 4,
+          fontFamily: F,
+          flexShrink: 0,
         }}
       >
         {data.productName || <span style={{ color: '#D1D5DB' }}>Product Name</span>}
       </div>
 
-      {/* Divider */}
-      <div style={{ height: 1, background: '#E5E7EB', marginBottom: 6, flexShrink: 0 }} />
+      {/* Divider below product name — same style as row dividers */}
+      <div style={{ height: 0.5, background: '#EEEEEE' }} />
 
-      {/* Scrollable fields area */}
-      <div
-        style={{
-          flex: 1,
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 6,
-          minHeight: 0,
-        }}
-      >
+      {/* Rows */}
+      <div style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
         {fields.map(({ label, value }) => (
           <LabelRow key={label} label={label} value={value} />
         ))}
       </div>
 
-      {/* Divider */}
-      <div style={{ height: 1, background: '#E5E7EB', marginTop: 6, marginBottom: 4, flexShrink: 0 }} />
-
-      {/* Logo bar */}
+      {/* Logo bar pinned to bottom */}
       <LogoBar />
     </div>
   )
 }
 
+// ─── Outer Label ──────────────────────────────────────────────────────────────
 function OuterLabel({ data }) {
   const fields = [
-    { label: 'SKU Code', value: data.skuCode },
+    { label: 'SKU code', value: data.skuCode },
     { label: 'Commodity', value: data.commodity },
-    { label: 'Quantity in Outer Box', value: data.qtyInOuterBox },
-    { label: 'Inner Polybag Dimensions', value: data.innerPolybagDimensions },
-    { label: 'Outer Box Dimensions', value: data.outerBoxDimensions },
-    { label: 'Net Weight', value: data.netWeight },
-    { label: 'Gross Weight', value: data.grossWeight },
-    { label: 'Country of Origin', value: data.countryOfOrigin },
-    ...(data.showManufacturedOn ? [{ label: 'Manufactured On', value: data.manufacturedOn }] : []),
-    { label: 'Marketed By', value: data.marketedBy },
-    { label: 'Manufactured By', value: data.manufacturedBy },
+    { label: 'Quantity in outer box', value: data.qtyInOuterBox },
+    { label: 'Inner polybag dimensions', value: data.innerPolybagDimensions },
+    { label: 'Outer box dimensions', value: data.outerBoxDimensions },
+    { label: 'Net weight', value: data.netWeight },
+    { label: 'Gross weight', value: data.grossWeight },
+    { label: 'Country of origin', value: data.countryOfOrigin },
+    ...(data.showManufacturedOn ? [{ label: 'Manufactured on', value: data.manufacturedOn }] : []),
+    { label: 'Marketed by', value: data.marketedBy },
+    { label: 'Manufactured by', value: data.manufacturedBy },
   ]
 
   return (
@@ -272,100 +282,63 @@ function OuterLabel({ data }) {
         display: 'flex',
         flexDirection: 'column',
         boxSizing: 'border-box',
-        ...LABEL_STYLE,
+        fontFamily: F,
       }}
     >
-      {/* Product name */}
       <div
         style={{
           fontSize: 14,
           fontWeight: 500,
-          color: '#1a1a1a',
+          color: '#757575',
           lineHeight: 1.3,
-          marginBottom: 8,
-          fontFamily: '"Open Sauce One", sans-serif',
+          marginBottom: 4,
+          fontFamily: F,
+          flexShrink: 0,
         }}
       >
         {data.productName || <span style={{ color: '#D1D5DB' }}>Product Name</span>}
       </div>
 
-      {/* Divider */}
-      <div style={{ height: 1, background: '#E5E7EB', marginBottom: 6, flexShrink: 0 }} />
+      <div style={{ height: 0.5, background: '#EEEEEE' }} />
 
-      {/* Fields */}
-      <div
-        style={{
-          flex: 1,
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 6,
-          minHeight: 0,
-        }}
-      >
+      <div style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
         {fields.map(({ label, value }) => (
           <LabelRow key={label} label={label} value={value} />
         ))}
 
-        {/* NOT FOR RETAIL SALE */}
-        <div
-          style={{
-            fontSize: 5,
-            fontWeight: 600,
-            color: '#1a1a1a',
-            marginTop: 2,
-            fontFamily: '"Open Sauce One", sans-serif',
-          }}
-        >
-          NOT FOR RETAIL SALE
+        {/* NOT FOR RETAIL SALE row */}
+        <div>
+          <div style={{ paddingTop: 4, paddingBottom: 4 }}>
+            <span style={{ fontSize: 5, fontWeight: 600, color: '#757575', fontFamily: F }}>
+              NOT FOR RETAIL SALE
+            </span>
+          </div>
+          <div style={{ height: 0.5, background: '#EEEEEE' }} />
         </div>
       </div>
 
-      {/* Divider */}
-      <div style={{ height: 1, background: '#E5E7EB', marginTop: 6, marginBottom: 4, flexShrink: 0 }} />
-
-      {/* Logo bar */}
       <LogoBar />
     </div>
   )
 }
 
-// ─── Export helpers ───────────────────────────────────────────────────────────
-// Generates an SVG string that embeds the font via a <style> block with @font-face.
-// Replace the font URLs below with actual base64 data URIs for true offline embedding.
+// ─── SVG Export ───────────────────────────────────────────────────────────────
 function generateSVGExport(labelRef) {
   if (!labelRef.current) return
   const html = labelRef.current.outerHTML
-
   const fontFaceStyle = `
     <style>
-      @font-face {
-        font-family: 'Open Sauce One';
-        src: url('/fonts/OpenSauceOne-Regular.woff2') format('woff2');
-        font-weight: 400;
-      }
-      @font-face {
-        font-family: 'Open Sauce One';
-        src: url('/fonts/OpenSauceOne-Medium.woff2') format('woff2');
-        font-weight: 500;
-      }
-      @font-face {
-        font-family: 'Open Sauce One';
-        src: url('/fonts/OpenSauceOne-SemiBold.woff2') format('woff2');
-        font-weight: 600;
-      }
-      * { box-sizing: border-box; }
+      @font-face { font-family:'Open Sauce One'; src:url('/fonts/OpenSauceOne-Regular.woff2') format('woff2'); font-weight:400; }
+      @font-face { font-family:'Open Sauce One'; src:url('/fonts/OpenSauceOne-Medium.woff2') format('woff2'); font-weight:500; }
+      @font-face { font-family:'Open Sauce One'; src:url('/fonts/OpenSauceOne-SemiBold.woff2') format('woff2'); font-weight:600; }
+      * { box-sizing:border-box; }
     </style>`
-
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320">
   <defs>${fontFaceStyle}</defs>
   <foreignObject width="320" height="320">
-    <div xmlns="http://www.w3.org/1999/xhtml">
-      ${html}
-    </div>
+    <div xmlns="http://www.w3.org/1999/xhtml">${html}</div>
   </foreignObject>
 </svg>`
-
   const blob = new Blob([svg], { type: 'image/svg+xml' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -375,51 +348,23 @@ function generateSVGExport(labelRef) {
   URL.revokeObjectURL(url)
 }
 
-// ─── Inner form panel ─────────────────────────────────────────────────────────
+// ─── Inner Form ───────────────────────────────────────────────────────────────
 function InnerForm({ data, onChange }) {
   const h = (e) => onChange({ ...data, [e.target.name]: e.target.value })
   const t = (key) => (val) => onChange({ ...data, [key]: val })
-
   return (
     <div className="flex flex-col gap-4">
-      <Field label="Product Name" name="productName" value={data.productName} onChange={h} placeholder="e.g. UC Native RO Filter" />
-      <Field label="SKU Code" name="skuCode" value={data.skuCode} onChange={h} placeholder="e.g. UC-RO-001" />
-      <Field label="Commodity" name="commodity" value={data.commodity} onChange={h} placeholder="e.g. Water Purifier Filter" />
-      <Field label="MRP" name="mrp" value={data.mrp} onChange={h} placeholder="e.g. ₹499" />
+      <Field label="Product Name" name="productName" value={data.productName} onChange={h} placeholder="e.g. Flow Restrictor 300" />
+      <Field label="SKU Code" name="skuCode" value={data.skuCode} onChange={h} placeholder="e.g. UC-NATIVE-75300" />
+      <Field label="Commodity" name="commodity" value={data.commodity} onChange={h} placeholder="e.g. Water Purifier Spare Part" />
+      <Field label="MRP" name="mrp" value={data.mrp} onChange={h} placeholder="e.g. ₹499 (incl. of all taxes)" />
       <Field label="Unit Sale Price" name="unitSalePrice" value={data.unitSalePrice} onChange={h} placeholder="e.g. ₹399" />
-      <Field label="Net Quantity" name="netQuantity" value={data.netQuantity} onChange={h} placeholder="e.g. 1 Piece" />
-      <Field label="Box Dimension" name="boxDimension" value={data.boxDimension} onChange={h} placeholder="e.g. 100×80×60 mm" />
-      <Field
-        label="Net Weight"
-        name="netWeight"
-        value={data.netWeight}
-        onChange={h}
-        placeholder="e.g. 250g"
-        optional
-        shown={data.showNetWeight}
-        onToggle={t('showNetWeight')}
-      />
-      <Field
-        label="Gross Weight"
-        name="grossWeight"
-        value={data.grossWeight}
-        onChange={h}
-        placeholder="e.g. 300g"
-        optional
-        shown={data.showGrossWeight}
-        onToggle={t('showGrossWeight')}
-      />
+      <Field label="Net Quantity" name="netQuantity" value={data.netQuantity} onChange={h} placeholder="e.g. 1 Unit" />
+      <Field label="Packaging Dimensions" name="boxDimension" value={data.boxDimension} onChange={h} placeholder="e.g. 120 × 200 mm" />
+      <Field label="Net Weight" name="netWeight" value={data.netWeight} onChange={h} placeholder="e.g. 20 g" optional shown={data.showNetWeight} onToggle={t('showNetWeight')} />
+      <Field label="Gross Weight" name="grossWeight" value={data.grossWeight} onChange={h} placeholder="e.g. 22 g" optional shown={data.showGrossWeight} onToggle={t('showGrossWeight')} />
       <Field label="Country of Origin" name="countryOfOrigin" value={data.countryOfOrigin} onChange={h} />
-      <Field
-        label="Manufactured On"
-        name="manufacturedOn"
-        value={data.manufacturedOn}
-        onChange={h}
-        placeholder="e.g. Jan 2024"
-        optional
-        shown={data.showManufacturedOn}
-        onToggle={t('showManufacturedOn')}
-      />
+      <Field label="Manufactured On" name="manufacturedOn" value={data.manufacturedOn} onChange={h} placeholder="e.g. Jan 2024" optional shown={data.showManufacturedOn} onToggle={t('showManufacturedOn')} />
       <Field label="Marketed By" name="marketedBy" value={data.marketedBy} onChange={h} multiline />
       <Field label="Manufactured By" name="manufacturedBy" value={data.manufacturedBy} onChange={h} multiline placeholder="Manufacturer name and address" />
       <Field label="Customer Care" name="customerCare" value={data.customerCare} onChange={h} multiline />
@@ -427,32 +372,22 @@ function InnerForm({ data, onChange }) {
   )
 }
 
-// ─── Outer form panel ─────────────────────────────────────────────────────────
+// ─── Outer Form ───────────────────────────────────────────────────────────────
 function OuterForm({ data, onChange }) {
   const h = (e) => onChange({ ...data, [e.target.name]: e.target.value })
   const t = (key) => (val) => onChange({ ...data, [key]: val })
-
   return (
     <div className="flex flex-col gap-4">
-      <Field label="Product Name" name="productName" value={data.productName} onChange={h} placeholder="e.g. UC Native RO Filter" />
-      <Field label="SKU Code" name="skuCode" value={data.skuCode} onChange={h} placeholder="e.g. UC-RO-001" />
-      <Field label="Commodity" name="commodity" value={data.commodity} onChange={h} placeholder="e.g. Water Purifier Filter" />
+      <Field label="Product Name" name="productName" value={data.productName} onChange={h} placeholder="e.g. Flow Restrictor 300" />
+      <Field label="SKU Code" name="skuCode" value={data.skuCode} onChange={h} placeholder="e.g. UC-NATIVE-75300" />
+      <Field label="Commodity" name="commodity" value={data.commodity} onChange={h} placeholder="e.g. Water Purifier Spare Part" />
       <Field label="Quantity in Outer Box" name="qtyInOuterBox" value={data.qtyInOuterBox} onChange={h} placeholder="e.g. 12" />
       <Field label="Inner Polybag Dimensions" name="innerPolybagDimensions" value={data.innerPolybagDimensions} onChange={h} placeholder="e.g. 200×150mm" />
       <Field label="Outer Box Dimensions" name="outerBoxDimensions" value={data.outerBoxDimensions} onChange={h} placeholder="e.g. 400×300×250mm" />
-      <Field label="Net Weight" name="netWeight" value={data.netWeight} onChange={h} placeholder="e.g. 3kg" />
-      <Field label="Gross Weight" name="grossWeight" value={data.grossWeight} onChange={h} placeholder="e.g. 3.5kg" />
+      <Field label="Net Weight" name="netWeight" value={data.netWeight} onChange={h} placeholder="e.g. 3 kg" />
+      <Field label="Gross Weight" name="grossWeight" value={data.grossWeight} onChange={h} placeholder="e.g. 3.5 kg" />
       <Field label="Country of Origin" name="countryOfOrigin" value={data.countryOfOrigin} onChange={h} />
-      <Field
-        label="Manufactured On"
-        name="manufacturedOn"
-        value={data.manufacturedOn}
-        onChange={h}
-        placeholder="e.g. Jan 2024"
-        optional
-        shown={data.showManufacturedOn}
-        onToggle={t('showManufacturedOn')}
-      />
+      <Field label="Manufactured On" name="manufacturedOn" value={data.manufacturedOn} onChange={h} placeholder="e.g. Jan 2024" optional shown={data.showManufacturedOn} onToggle={t('showManufacturedOn')} />
       <Field label="Marketed By" name="marketedBy" value={data.marketedBy} onChange={h} multiline />
       <Field label="Manufactured By" name="manufacturedBy" value={data.manufacturedBy} onChange={h} multiline placeholder="Manufacturer name and address" />
     </div>
@@ -461,29 +396,21 @@ function OuterForm({ data, onChange }) {
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [labelType, setLabelType] = useState('inner') // 'inner' | 'outer'
+  const [labelType, setLabelType] = useState('inner')
   const [innerData, setInnerData] = useState(makeInnerState)
   const [outerData, setOuterData] = useState(makeOuterState)
   const labelRef = React.useRef(null)
-
   const isInner = labelType === 'inner'
-
-  const handleExport = useCallback(() => {
-    generateSVGExport(labelRef)
-  }, [])
+  const handleExport = useCallback(() => generateSVGExport(labelRef), [])
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#F5F5F0]" style={{ fontFamily: '"Open Sauce One", sans-serif' }}>
+    <div className="flex h-screen overflow-hidden bg-[#F5F5F0]" style={{ fontFamily: F }}>
 
       {/* ── Left panel ── */}
       <aside className="w-[380px] flex-shrink-0 flex flex-col border-r border-gray-200 bg-white overflow-hidden">
-
-        {/* Header */}
         <div className="px-6 pt-6 pb-4 border-b border-gray-100">
           <h1 className="text-lg font-semibold text-gray-900 tracking-tight">Label Maker</h1>
           <p className="text-xs text-gray-400 mt-0.5">Native × Urban Company</p>
-
-          {/* Type toggle */}
           <div className="mt-4 flex rounded-xl overflow-hidden border border-gray-200 bg-gray-50 p-1 gap-1">
             {['inner', 'outer'].map((type) => (
               <button
@@ -501,7 +428,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* Scrollable form */}
         <div className="flex-1 overflow-y-auto px-6 py-5">
           {isInner
             ? <InnerForm data={innerData} onChange={setInnerData} />
@@ -509,7 +435,6 @@ export default function App() {
           }
         </div>
 
-        {/* Footer actions */}
         <div className="px-6 py-4 border-t border-gray-100 flex gap-2">
           <button
             onClick={() => isInner ? setInnerData(makeInnerState()) : setOuterData(makeOuterState())}
@@ -529,21 +454,15 @@ export default function App() {
       {/* ── Right panel ── */}
       <main className="flex-1 flex items-center justify-center overflow-auto p-10">
         <div className="flex flex-col items-center gap-4">
-          {/* Size badge */}
           <div className="flex items-center gap-3 text-xs text-gray-400">
-            <span className="px-2.5 py-1 rounded-full bg-white border border-gray-200 font-medium">
-              320 × 320 px
-            </span>
+            <span className="px-2.5 py-1 rounded-full bg-white border border-gray-200 font-medium">320 × 320 px</span>
             <span>→</span>
-            <span className="px-2.5 py-1 rounded-full bg-white border border-gray-200 font-medium">
-              80 × 80 mm (print)
-            </span>
+            <span className="px-2.5 py-1 rounded-full bg-white border border-gray-200 font-medium">80 × 80 mm (print)</span>
             <span className="px-2.5 py-1 rounded-full bg-white border border-gray-200 font-medium capitalize text-indigo-500">
-              {labelType === 'inner' ? 'Inner LM' : 'Outer LM'}
+              {isInner ? 'Inner LM' : 'Outer LM'}
             </span>
           </div>
 
-          {/* Label preview with sticker border */}
           <div
             style={{
               width: 320,
@@ -552,21 +471,15 @@ export default function App() {
               borderRadius: 2,
               overflow: 'hidden',
               background: '#FFFFFF',
-              // dashed outer ring to represent sticker edge
               outline: '2px dashed #CBD5E1',
               outlineOffset: 4,
             }}
             ref={labelRef}
           >
-            {isInner
-              ? <InnerLabel data={innerData} />
-              : <OuterLabel data={outerData} />
-            }
+            {isInner ? <InnerLabel data={innerData} /> : <OuterLabel data={outerData} />}
           </div>
 
-          <p className="text-xs text-gray-400 mt-1">
-            Dashed border represents physical sticker edge
-          </p>
+          <p className="text-xs text-gray-400 mt-1">Dashed border represents physical sticker edge</p>
         </div>
       </main>
     </div>
