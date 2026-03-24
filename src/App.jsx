@@ -1,4 +1,6 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useRef } from 'react'
+import jsPDF from 'jspdf'
+import html2canvas from 'html2canvas'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const MARKETED_BY_DEFAULT =
@@ -26,7 +28,7 @@ const MANUFACTURERS = [
 ]
 
 const toTitleCase = (str) => str.replace(/(\b\w)/g, (c) => c.toUpperCase())
-const digitsOnly = (str) => str.replace(/[^\d.]/g, '')
+const digitsOnly  = (str) => str.replace(/[^\d.]/g, '')
 
 // ─── State factories ──────────────────────────────────────────────────────────
 const makeInnerState = () => ({
@@ -66,7 +68,114 @@ const makeOuterState = () => ({
   showManufacturedOn: true,
 })
 
-// ─── Toggle Switch ────────────────────────────────────────────────────────────
+// ─── Export engine ────────────────────────────────────────────────────────────
+
+// Fetch a font file from /public/fonts/ and return a base64 data URI string.
+// Falls back gracefully if the file can't be fetched.
+async function fetchFontAsBase64(filename) {
+  try {
+    const res = await fetch(`/fonts/${filename}`)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const buf = await res.arrayBuffer()
+    const bytes = new Uint8Array(buf)
+    let binary = ''
+    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i])
+    return btoa(binary)
+  } catch (e) {
+    console.warn(`Could not load font ${filename}:`, e)
+    return null
+  }
+}
+
+// Build the @font-face CSS block with base64 data URIs embedded inline.
+async function buildEmbeddedFontCSS() {
+  const [regular, medium, semibold] = await Promise.all([
+    fetchFontAsBase64('OpenSauceOne-Regular.woff2'),
+    fetchFontAsBase64('OpenSauceOne-Medium.woff2'),
+    fetchFontAsBase64('OpenSauceOne-SemiBold.woff2'),
+  ])
+
+  const face = (weight, b64) => b64
+    ? `@font-face{font-family:'Open Sauce One';src:url('data:font/woff2;base64,${b64}') format('woff2');font-weight:${weight};font-style:normal;}`
+    : ''
+
+  return [
+    face(400, regular),
+    face(500, medium),
+    face(600, semibold),
+    '* { box-sizing: border-box; }',
+  ].join('\n')
+}
+
+// Derive export filename from product name + label type
+function buildFilename(productName, labelType, ext) {
+  const name = (productName || 'Untitled').trim()
+  const suffix = labelType === 'inner' ? 'Inner LM' : 'Outer LM'
+  return `${name} (${suffix}).${ext}`
+}
+
+// SVG export — embeds font as base64 inside <defs>
+async function exportSVG(labelRef, productName, labelType) {
+  const fontCSS = await buildEmbeddedFontCSS()
+  const labelHTML = labelRef.current.innerHTML
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320">
+  <defs>
+    <style>${fontCSS}</style>
+  </defs>
+  <foreignObject x="0" y="0" width="320" height="320">
+    <div xmlns="http://www.w3.org/1999/xhtml" style="width:320px;height:320px;overflow:hidden;font-family:'Open Sauce One',sans-serif;">
+      ${labelHTML}
+    </div>
+  </foreignObject>
+</svg>`
+
+  const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href     = url
+  a.download = buildFilename(productName, labelType, 'svg')
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+// PDF export — renders label div to canvas at 2× scale for crisp output,
+// then places it on an 80×80mm jsPDF page.
+async function exportPDF(labelRef, productName, labelType) {
+  const el = labelRef.current
+
+  // Render to canvas at 2× pixel ratio for sharpness
+  const canvas = await html2canvas(el, {
+    scale: 2,
+    useCORS: true,
+    backgroundColor: '#ffffff',
+    logging: false,
+  })
+
+  const imgData = canvas.toDataURL('image/png')
+
+  // 80×80mm page, no margins
+  const pdf = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: [80, 80],
+  })
+
+  pdf.addImage(imgData, 'PNG', 0, 0, 80, 80)
+  pdf.save(buildFilename(productName, labelType, 'pdf'))
+}
+
+// Master export — runs SVG and PDF in parallel
+async function runExport(labelRef, productName, labelType) {
+  await Promise.all([
+    exportSVG(labelRef, productName, labelType),
+    exportPDF(labelRef, productName, labelType),
+  ])
+}
+
+// ─── Toggle ───────────────────────────────────────────────────────────────────
 function Toggle({ checked, onChange }) {
   return (
     <button
@@ -87,67 +196,48 @@ function Toggle({ checked, onChange }) {
   )
 }
 
-// ─── Manufacturer Dropdown ────────────────────────────────────────────────────
+// ─── Manufacturer dropdown ────────────────────────────────────────────────────
 const ADD_NEW = '__ADD_NEW__'
 
 function ManufacturerField({ value, onChange }) {
-  const [isCustom, setIsCustom] = useState(false)
+  const [isCustom,   setIsCustom]   = useState(false)
   const [customList, setCustomList] = useState([])
-
   const allOptions = [...MANUFACTURERS, ...customList]
-  const isKnown = allOptions.includes(value)
+  const isKnown    = allOptions.includes(value)
 
   const handleSelect = (e) => {
-    const v = e.target.value
-    if (v === ADD_NEW) {
-      setIsCustom(true)
-      onChange('')
-    } else {
-      setIsCustom(false)
-      onChange(v)
-    }
+    if (e.target.value === ADD_NEW) { setIsCustom(true); onChange('') }
+    else { setIsCustom(false); onChange(e.target.value) }
   }
 
   const handleCustomSave = (v) => {
-    if (v.trim() && !allOptions.includes(v.trim())) {
-      setCustomList((prev) => [...prev, v.trim()])
-    }
+    if (v.trim() && !allOptions.includes(v.trim())) setCustomList((p) => [...p, v.trim()])
     setIsCustom(false)
   }
 
   return (
     <div className="flex flex-col gap-1">
       <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Manufactured By</label>
-
       {!isCustom ? (
         <>
           <select
             value={isKnown ? value : (value ? ADD_NEW : '')}
             onChange={handleSelect}
             className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 transition appearance-none"
-            style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239CA3AF' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', paddingRight: '32px' }}
+            style={{ backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239CA3AF' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat:'no-repeat', backgroundPosition:'right 12px center', paddingRight:'32px' }}
           >
             <option value="" disabled>Select manufacturer…</option>
             {allOptions.map((m, i) => (
-              <option key={i} value={m}>
-                {m.length > 60 ? m.slice(0, 60) + '…' : m}
-              </option>
+              <option key={i} value={m}>{m.length > 60 ? m.slice(0, 60) + '…' : m}</option>
             ))}
             <option value={ADD_NEW}>+ Add new manufacturer</option>
           </select>
-
-          {/* Show full selected value below if one is chosen */}
           {value && (
-            <div className="mt-1 rounded-lg bg-gray-50 border border-gray-100 px-3 py-2 text-xs text-gray-500 leading-relaxed">
-              {value}
-            </div>
+            <div className="mt-1 rounded-lg bg-gray-50 border border-gray-100 px-3 py-2 text-xs text-gray-500 leading-relaxed">{value}</div>
           )}
         </>
       ) : (
-        <CustomManufacturerInput
-          onSave={(v) => { onChange(v); handleCustomSave(v) }}
-          onCancel={() => setIsCustom(false)}
-        />
+        <CustomManufacturerInput onSave={(v) => { onChange(v); handleCustomSave(v) }} onCancel={() => setIsCustom(false)} />
       )}
     </div>
   )
@@ -158,25 +248,17 @@ function CustomManufacturerInput({ onSave, onCancel }) {
   return (
     <div className="flex flex-col gap-2">
       <textarea
-        autoFocus
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder="Enter manufacturer name and full address…"
-        rows={4}
+        autoFocus value={text} onChange={(e) => setText(e.target.value)}
+        placeholder="Enter manufacturer name and full address…" rows={4}
         className="rounded-lg border border-indigo-300 bg-white px-3 py-2 text-sm text-gray-800 placeholder-gray-300 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 resize-none transition"
       />
       <div className="flex gap-2">
-        <button
-          onClick={() => onSave(text)}
-          disabled={!text.trim()}
-          className="flex-1 py-2 text-xs font-semibold text-white rounded-lg bg-indigo-500 hover:bg-indigo-600 disabled:opacity-40 transition"
-        >
+        <button onClick={() => onSave(text)} disabled={!text.trim()}
+          className="flex-1 py-2 text-xs font-semibold text-white rounded-lg bg-indigo-500 hover:bg-indigo-600 disabled:opacity-40 transition">
           Save & Use
         </button>
-        <button
-          onClick={onCancel}
-          className="flex-1 py-2 text-xs font-semibold text-gray-500 rounded-lg border border-gray-200 hover:border-gray-300 transition"
-        >
+        <button onClick={onCancel}
+          className="flex-1 py-2 text-xs font-semibold text-gray-500 rounded-lg border border-gray-200 hover:border-gray-300 transition">
           Cancel
         </button>
       </div>
@@ -184,38 +266,24 @@ function CustomManufacturerInput({ onSave, onCancel }) {
   )
 }
 
-// ─── Form field components ────────────────────────────────────────────────────
-function Field({ label, name, value, onChange, placeholder = '', multiline = false, optional = false, shown, onToggle, hint }) {
+// ─── Form components ──────────────────────────────────────────────────────────
+function Field({ label, name, value, onChange, placeholder='', multiline=false, optional=false, shown, onToggle, hint }) {
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-center justify-between">
         <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
           {label}
-          {hint && <span className="ml-1 text-gray-400 font-normal normal-case">({hint})</span>}
+          {hint     && <span className="ml-1 text-gray-400 font-normal normal-case">({hint})</span>}
           {optional && <span className="ml-1 text-gray-400 font-normal normal-case">(optional)</span>}
         </label>
         {optional && <Toggle checked={shown} onChange={onToggle} />}
       </div>
       {(!optional || shown) && (
-        multiline ? (
-          <textarea
-            name={name}
-            value={value}
-            onChange={onChange}
-            placeholder={placeholder}
-            rows={3}
-            className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 placeholder-gray-300 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 resize-none transition"
-          />
-        ) : (
-          <input
-            type="text"
-            name={name}
-            value={value}
-            onChange={onChange}
-            placeholder={placeholder}
-            className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 placeholder-gray-300 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 transition"
-          />
-        )
+        multiline
+          ? <textarea name={name} value={value} onChange={onChange} placeholder={placeholder} rows={3}
+              className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 placeholder-gray-300 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 resize-none transition" />
+          : <input type="text" name={name} value={value} onChange={onChange} placeholder={placeholder}
+              className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 placeholder-gray-300 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 transition" />
       )}
     </div>
   )
@@ -227,21 +295,16 @@ function MRPField({ value, onChange }) {
       <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">MRP</label>
       <div className="flex items-center rounded-lg border border-gray-200 bg-white overflow-hidden focus-within:border-indigo-400 focus-within:ring-1 focus-within:ring-indigo-400 transition">
         <span className="pl-3 pr-1 text-sm text-gray-400 select-none">₹</span>
-        <input
-          type="text"
-          inputMode="numeric"
-          value={value}
-          onChange={(e) => onChange(digitsOnly(e.target.value))}
+        <input type="text" inputMode="numeric" value={value} onChange={(e) => onChange(digitsOnly(e.target.value))}
           placeholder="500"
-          className="flex-1 py-2 text-sm text-gray-800 placeholder-gray-300 focus:outline-none bg-transparent min-w-0"
-        />
+          className="flex-1 py-2 text-sm text-gray-800 placeholder-gray-300 focus:outline-none bg-transparent min-w-0" />
         <span className="pr-3 pl-1 text-sm text-gray-300 select-none whitespace-nowrap">(incl. of all taxes)</span>
       </div>
     </div>
   )
 }
 
-function SuffixNumberField({ label, value, onChange, suffix, placeholder = '', optional = false, shown, onToggle }) {
+function SuffixNumberField({ label, value, onChange, suffix, placeholder='', optional=false, shown, onToggle }) {
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-center justify-between">
@@ -253,14 +316,9 @@ function SuffixNumberField({ label, value, onChange, suffix, placeholder = '', o
       </div>
       {(!optional || shown) && (
         <div className="flex items-center rounded-lg border border-gray-200 bg-white overflow-hidden focus-within:border-indigo-400 focus-within:ring-1 focus-within:ring-indigo-400 transition">
-          <input
-            type="text"
-            inputMode="numeric"
-            value={value}
-            onChange={(e) => onChange(digitsOnly(e.target.value))}
-            placeholder={placeholder}
-            className="flex-1 px-3 py-2 text-sm text-gray-800 placeholder-gray-300 focus:outline-none bg-transparent min-w-0"
-          />
+          <input type="text" inputMode="numeric" value={value}
+            onChange={(e) => onChange(digitsOnly(e.target.value))} placeholder={placeholder}
+            className="flex-1 px-3 py-2 text-sm text-gray-800 placeholder-gray-300 focus:outline-none bg-transparent min-w-0" />
           <span className="pr-3 text-sm text-gray-300 select-none">{suffix}</span>
         </div>
       )}
@@ -268,37 +326,31 @@ function SuffixNumberField({ label, value, onChange, suffix, placeholder = '', o
   )
 }
 
-// ─── Label building blocks ────────────────────────────────────────────────────
-function LabelRow({ label, value, isLast = false }) {
+// ─── Label components ─────────────────────────────────────────────────────────
+function LabelRow({ label, value, isLast=false }) {
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'flex-start', paddingTop: 4, paddingBottom: 4 }}>
-        <div
-          style={{
-            width: 80, minWidth: 80,
-            fontSize: 5, fontWeight: 600, color: '#757575',
-            lineHeight: 1.5, fontFamily: F, paddingRight: 6, flexShrink: 0,
-          }}
-        >
+      <div style={{ display:'flex', alignItems:'flex-start', paddingTop:4, paddingBottom:4 }}>
+        <div style={{ width:80, minWidth:80, fontSize:5, fontWeight:600, color:'#757575', lineHeight:1.5, fontFamily:F, paddingRight:6, flexShrink:0 }}>
           {label}
         </div>
-        <div style={{ flex: 1, fontSize: 5, fontWeight: 400, color: '#757575', lineHeight: 1.5, fontFamily: F }}>
+        <div style={{ flex:1, fontSize:5, fontWeight:400, color:'#757575', lineHeight:1.5, fontFamily:F }}>
           {value}
         </div>
       </div>
-      {!isLast && <div style={{ height: 0.5, background: '#EEEEEE' }} />}
+      {!isLast && <div style={{ height:0.5, background:'#EEEEEE' }} />}
     </div>
   )
 }
 
 function LogoBar() {
   return (
-    <div style={{ height: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, paddingTop: 2 }}>
-      <div style={{ width: 64, height: 8, background: '#E5E7EB', borderRadius: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <span style={{ fontSize: 4, fontWeight: 700, color: '#9CA3AF', letterSpacing: 1, fontFamily: F }}>NATIVE LOGO</span>
+    <div style={{ height:14, display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0, paddingTop:2 }}>
+      <div style={{ width:64, height:8, background:'#E5E7EB', borderRadius:1, display:'flex', alignItems:'center', justifyContent:'center' }}>
+        <span style={{ fontSize:4, fontWeight:700, color:'#9CA3AF', letterSpacing:1, fontFamily:F }}>NATIVE LOGO</span>
       </div>
-      <div style={{ width: 49, height: 14, background: '#E5E7EB', borderRadius: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <span style={{ fontSize: 4, fontWeight: 700, color: '#9CA3AF', letterSpacing: 0.5, fontFamily: F }}>UC LOGO</span>
+      <div style={{ width:49, height:14, background:'#E5E7EB', borderRadius:1, display:'flex', alignItems:'center', justifyContent:'center' }}>
+        <span style={{ fontSize:4, fontWeight:700, color:'#9CA3AF', letterSpacing:0.5, fontFamily:F }}>UC LOGO</span>
       </div>
     </div>
   )
@@ -308,30 +360,28 @@ const fmtMRP = (v) => v ? `₹${v} (incl. of all taxes)` : ''
 const fmtMm  = (v) => v ? `${v} mm` : ''
 const fmtG   = (v) => v ? `${v} g` : ''
 
-// ─── Inner Label ──────────────────────────────────────────────────────────────
 function InnerLabel({ data }) {
   const rows = [
-    { label: 'SKU code',             value: data.skuCode },
-    { label: 'Commodity',            value: data.commodity },
-    { label: 'MRP',                  value: fmtMRP(data.mrp) },
-    ...(data.showUnitSalePrice ? [{ label: 'Unit sale price', value: data.unitSalePrice }] : []),
-    { label: 'Net quantity',         value: data.netQuantity },
-    { label: 'Packaging dimensions', value: fmtMm(data.boxDimension) },
-    ...(data.showNetWeight   ? [{ label: 'Net weight',   value: fmtG(data.netWeight) }]   : []),
-    ...(data.showGrossWeight ? [{ label: 'Gross weight', value: fmtG(data.grossWeight) }] : []),
-    { label: 'Country of origin',    value: data.countryOfOrigin },
-    ...(data.showManufacturedOn ? [{ label: 'Manufactured on', value: data.manufacturedOn }] : []),
-    { label: 'Marketed by',          value: data.marketedBy },
-    { label: 'Manufactured by',      value: data.manufacturedBy },
-    { label: 'Customer care',        value: data.customerCare },
+    { label:'SKU code',             value:data.skuCode },
+    { label:'Commodity',            value:data.commodity },
+    { label:'MRP',                  value:fmtMRP(data.mrp) },
+    ...(data.showUnitSalePrice ? [{ label:'Unit sale price', value:data.unitSalePrice }] : []),
+    { label:'Net quantity',         value:data.netQuantity },
+    { label:'Packaging dimensions', value:fmtMm(data.boxDimension) },
+    ...(data.showNetWeight   ? [{ label:'Net weight',   value:fmtG(data.netWeight) }]   : []),
+    ...(data.showGrossWeight ? [{ label:'Gross weight', value:fmtG(data.grossWeight) }] : []),
+    { label:'Country of origin',    value:data.countryOfOrigin },
+    ...(data.showManufacturedOn ? [{ label:'Manufactured on', value:data.manufacturedOn }] : []),
+    { label:'Marketed by',          value:data.marketedBy },
+    { label:'Manufactured by',      value:data.manufacturedBy },
+    { label:'Customer care',        value:data.customerCare },
   ]
-
   return (
-    <div style={{ width: 320, height: 320, background: '#FFFFFF', padding: '20px 20px 16px 20px', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', fontFamily: F }}>
-      <div style={{ fontSize: 14, fontWeight: 500, color: '#757575', lineHeight: 1.3, marginBottom: 4, fontFamily: F, flexShrink: 0 }}>
-        {data.productName || <span style={{ color: '#D1D5DB' }}>Product Name</span>}
+    <div style={{ width:320, height:320, background:'#FFFFFF', padding:'20px 20px 16px 20px', display:'flex', flexDirection:'column', boxSizing:'border-box', fontFamily:F }}>
+      <div style={{ fontSize:14, fontWeight:500, color:'#757575', lineHeight:1.3, marginBottom:4, fontFamily:F, flexShrink:0 }}>
+        {data.productName || <span style={{ color:'#D1D5DB' }}>Product Name</span>}
       </div>
-      <div style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
+      <div style={{ flex:1, overflow:'hidden', minHeight:0 }}>
         {rows.map(({ label, value }, i) => (
           <LabelRow key={label} label={label} value={value} isLast={i === rows.length - 1} />
         ))}
@@ -341,35 +391,32 @@ function InnerLabel({ data }) {
   )
 }
 
-// ─── Outer Label ──────────────────────────────────────────────────────────────
 function OuterLabel({ data }) {
   const rows = [
-    { label: 'SKU code',                    value: data.skuCode },
-    { label: 'Commodity',                   value: data.commodity },
-    { label: 'Quantity in outer box',        value: data.qtyInOuterBox },
-    { label: 'Inner packaging dimensions',   value: data.innerPackagingDimensions },
-    { label: 'Outer box dimensions',         value: data.outerBoxDimensions },
-    { label: 'Net weight',                   value: fmtG(data.netWeight) },
-    { label: 'Gross weight',                 value: fmtG(data.grossWeight) },
-    { label: 'Country of origin',            value: data.countryOfOrigin },
-    ...(data.showManufacturedOn ? [{ label: 'Manufactured on', value: data.manufacturedOn }] : []),
-    { label: 'Marketed by',                  value: data.marketedBy },
-    { label: 'Manufactured by',              value: data.manufacturedBy },
+    { label:'SKU code',                   value:data.skuCode },
+    { label:'Commodity',                  value:data.commodity },
+    { label:'Quantity in outer box',      value:data.qtyInOuterBox },
+    { label:'Inner packaging dimensions', value:data.innerPackagingDimensions },
+    { label:'Outer box dimensions',       value:data.outerBoxDimensions },
+    { label:'Net weight',                 value:fmtG(data.netWeight) },
+    { label:'Gross weight',               value:fmtG(data.grossWeight) },
+    { label:'Country of origin',          value:data.countryOfOrigin },
+    ...(data.showManufacturedOn ? [{ label:'Manufactured on', value:data.manufacturedOn }] : []),
+    { label:'Marketed by',                value:data.marketedBy },
+    { label:'Manufactured by',            value:data.manufacturedBy },
   ]
-
   return (
-    <div style={{ width: 320, height: 320, background: '#FFFFFF', padding: '20px 20px 16px 20px', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', fontFamily: F }}>
-      <div style={{ fontSize: 14, fontWeight: 500, color: '#757575', lineHeight: 1.3, marginBottom: 4, fontFamily: F, flexShrink: 0 }}>
-        {data.productName || <span style={{ color: '#D1D5DB' }}>Product Name</span>}
+    <div style={{ width:320, height:320, background:'#FFFFFF', padding:'20px 20px 16px 20px', display:'flex', flexDirection:'column', boxSizing:'border-box', fontFamily:F }}>
+      <div style={{ fontSize:14, fontWeight:500, color:'#757575', lineHeight:1.3, marginBottom:4, fontFamily:F, flexShrink:0 }}>
+        {data.productName || <span style={{ color:'#D1D5DB' }}>Product Name</span>}
       </div>
-      <div style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
+      <div style={{ flex:1, overflow:'hidden', minHeight:0 }}>
         {rows.map(({ label, value }, i) => (
           <LabelRow key={label} label={label} value={value} isLast={false} />
         ))}
-        {/* NOT FOR RETAIL SALE — always last, no divider after */}
         <div>
-          <div style={{ paddingTop: 4, paddingBottom: 4 }}>
-            <span style={{ fontSize: 5, fontWeight: 600, color: '#757575', fontFamily: F }}>NOT FOR RETAIL SALE</span>
+          <div style={{ paddingTop:4, paddingBottom:4 }}>
+            <span style={{ fontSize:5, fontWeight:600, color:'#757575', fontFamily:F }}>NOT FOR RETAIL SALE</span>
           </div>
         </div>
       </div>
@@ -378,53 +425,22 @@ function OuterLabel({ data }) {
   )
 }
 
-// ─── SVG Export ───────────────────────────────────────────────────────────────
-function generateSVGExport(labelRef) {
-  if (!labelRef.current) return
-  const html = labelRef.current.outerHTML
-  const fontFaceStyle = `<style>
-    @font-face { font-family:'Open Sauce One'; src:url('/fonts/OpenSauceOne-Regular.woff2') format('woff2'); font-weight:400; }
-    @font-face { font-family:'Open Sauce One'; src:url('/fonts/OpenSauceOne-Medium.woff2') format('woff2'); font-weight:500; }
-    @font-face { font-family:'Open Sauce One'; src:url('/fonts/OpenSauceOne-SemiBold.woff2') format('woff2'); font-weight:600; }
-    * { box-sizing:border-box; }
-  </style>`
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320">
-  <defs>${fontFaceStyle}</defs>
-  <foreignObject width="320" height="320">
-    <div xmlns="http://www.w3.org/1999/xhtml">${html}</div>
-  </foreignObject>
-</svg>`
-  const blob = new Blob([svg], { type: 'image/svg+xml' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url; a.download = 'label.svg'; a.click()
-  URL.revokeObjectURL(url)
-}
-
-// ─── Inner Form ───────────────────────────────────────────────────────────────
+// ─── Forms ────────────────────────────────────────────────────────────────────
 function InnerForm({ data, onChange }) {
   const h = (e) => onChange({ ...data, [e.target.name]: e.target.value })
   const t = (key) => (val) => onChange({ ...data, [key]: val })
-
   return (
     <div className="flex flex-col gap-4">
-      <Field
-        label="Product Name" name="productName" value={data.productName}
+      <Field label="Product Name" name="productName" value={data.productName}
         onChange={(e) => onChange({ ...data, productName: toTitleCase(e.target.value) })}
-        placeholder="e.g. Flow Restrictor 300"
-      />
-      <Field
-        label="SKU Code" name="skuCode" value={data.skuCode}
+        placeholder="e.g. Flow Restrictor 300" />
+      <Field label="SKU Code" name="skuCode" value={data.skuCode}
         onChange={(e) => onChange({ ...data, skuCode: e.target.value.toUpperCase() })}
-        placeholder="e.g. NATIVE/FR/300"
-      />
-      <Field
-        label="Commodity" name="commodity" value={data.commodity}
-        onChange={(e) => onChange({ ...data, commodity: toTitleCase(e.target.value) })}
-      />
+        placeholder="e.g. NATIVE/FR/300" />
+      <Field label="Commodity" name="commodity" value={data.commodity}
+        onChange={(e) => onChange({ ...data, commodity: toTitleCase(e.target.value) })} />
       <MRPField value={data.mrp} onChange={(v) => onChange({ ...data, mrp: v })} />
 
-      {/* Unit Sale Price — toggleable */}
       <div className="flex flex-col gap-1">
         <div className="flex items-center justify-between">
           <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
@@ -433,40 +449,34 @@ function InnerForm({ data, onChange }) {
           <Toggle checked={data.showUnitSalePrice} onChange={t('showUnitSalePrice')} />
         </div>
         {data.showUnitSalePrice && (
-          <input
-            type="text"
-            name="unitSalePrice"
-            value={data.unitSalePrice}
-            onChange={h}
-            placeholder="e.g. ₹399"
-            className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 placeholder-gray-300 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 transition"
-          />
+          <input type="text" name="unitSalePrice" value={data.unitSalePrice} onChange={h} placeholder="e.g. ₹399"
+            className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 placeholder-gray-300 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 transition" />
         )}
       </div>
 
       <Field label="Net Quantity" name="netQuantity" value={data.netQuantity} onChange={h} placeholder="e.g. 1 Unit" />
 
-      {/* Packaging Dimensions — mm */}
       <div className="flex flex-col gap-1">
         <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
           Packaging Dimensions <span className="font-normal normal-case text-gray-400">(in mm)</span>
         </label>
         <div className="flex items-center rounded-lg border border-gray-200 bg-white overflow-hidden focus-within:border-indigo-400 focus-within:ring-1 focus-within:ring-indigo-400 transition">
-          <input
-            type="text" inputMode="numeric" value={data.boxDimension}
+          <input type="text" inputMode="numeric" value={data.boxDimension}
             onChange={(e) => onChange({ ...data, boxDimension: digitsOnly(e.target.value) })}
             placeholder="e.g. 120"
-            className="flex-1 px-3 py-2 text-sm text-gray-800 placeholder-gray-300 focus:outline-none bg-transparent min-w-0"
-          />
+            className="flex-1 px-3 py-2 text-sm text-gray-800 placeholder-gray-300 focus:outline-none bg-transparent min-w-0" />
           <span className="pr-3 text-sm text-gray-300 select-none">mm</span>
         </div>
       </div>
 
-      <SuffixNumberField label="Net Weight" value={data.netWeight} onChange={(v) => onChange({ ...data, netWeight: v })} suffix="g" placeholder="e.g. 20" optional shown={data.showNetWeight} onToggle={t('showNetWeight')} />
-      <SuffixNumberField label="Gross Weight" value={data.grossWeight} onChange={(v) => onChange({ ...data, grossWeight: v })} suffix="g" placeholder="e.g. 22" optional shown={data.showGrossWeight} onToggle={t('showGrossWeight')} />
+      <SuffixNumberField label="Net Weight" value={data.netWeight} onChange={(v) => onChange({ ...data, netWeight: v })}
+        suffix="g" placeholder="e.g. 20" optional shown={data.showNetWeight} onToggle={t('showNetWeight')} />
+      <SuffixNumberField label="Gross Weight" value={data.grossWeight} onChange={(v) => onChange({ ...data, grossWeight: v })}
+        suffix="g" placeholder="e.g. 22" optional shown={data.showGrossWeight} onToggle={t('showGrossWeight')} />
 
       <Field label="Country of Origin" name="countryOfOrigin" value={data.countryOfOrigin} onChange={h} />
-      <Field label="Manufactured On" name="manufacturedOn" value={data.manufacturedOn} onChange={h} placeholder="e.g. Jan 2024" optional shown={data.showManufacturedOn} onToggle={t('showManufacturedOn')} />
+      <Field label="Manufactured On" name="manufacturedOn" value={data.manufacturedOn} onChange={h}
+        placeholder="e.g. Jan 2024" optional shown={data.showManufacturedOn} onToggle={t('showManufacturedOn')} />
       <Field label="Marketed By" name="marketedBy" value={data.marketedBy} onChange={h} multiline />
       <ManufacturerField value={data.manufacturedBy} onChange={(v) => onChange({ ...data, manufacturedBy: v })} />
       <Field label="Customer Care" name="customerCare" value={data.customerCare} onChange={h} multiline />
@@ -474,34 +484,27 @@ function InnerForm({ data, onChange }) {
   )
 }
 
-// ─── Outer Form ───────────────────────────────────────────────────────────────
 function OuterForm({ data, onChange }) {
   const h = (e) => onChange({ ...data, [e.target.name]: e.target.value })
   const t = (key) => (val) => onChange({ ...data, [key]: val })
-
   return (
     <div className="flex flex-col gap-4">
-      <Field
-        label="Product Name" name="productName" value={data.productName}
+      <Field label="Product Name" name="productName" value={data.productName}
         onChange={(e) => onChange({ ...data, productName: toTitleCase(e.target.value) })}
-        placeholder="e.g. Flow Restrictor 300"
-      />
-      <Field
-        label="SKU Code" name="skuCode" value={data.skuCode}
+        placeholder="e.g. Flow Restrictor 300" />
+      <Field label="SKU Code" name="skuCode" value={data.skuCode}
         onChange={(e) => onChange({ ...data, skuCode: e.target.value.toUpperCase() })}
-        placeholder="e.g. NATIVE/FR/300"
-      />
-      <Field
-        label="Commodity" name="commodity" value={data.commodity}
-        onChange={(e) => onChange({ ...data, commodity: toTitleCase(e.target.value) })}
-      />
+        placeholder="e.g. NATIVE/FR/300" />
+      <Field label="Commodity" name="commodity" value={data.commodity}
+        onChange={(e) => onChange({ ...data, commodity: toTitleCase(e.target.value) })} />
       <Field label="Quantity in Outer Box" name="qtyInOuterBox" value={data.qtyInOuterBox} onChange={h} placeholder="e.g. 12" />
       <Field label="Inner Packaging Dimensions" name="innerPackagingDimensions" value={data.innerPackagingDimensions} onChange={h} placeholder="e.g. 200×150mm" />
       <Field label="Outer Box Dimensions" name="outerBoxDimensions" value={data.outerBoxDimensions} onChange={h} placeholder="e.g. 400×300×250mm" />
       <SuffixNumberField label="Net Weight" value={data.netWeight} onChange={(v) => onChange({ ...data, netWeight: v })} suffix="g" placeholder="e.g. 3000" />
       <SuffixNumberField label="Gross Weight" value={data.grossWeight} onChange={(v) => onChange({ ...data, grossWeight: v })} suffix="g" placeholder="e.g. 3500" />
       <Field label="Country of Origin" name="countryOfOrigin" value={data.countryOfOrigin} onChange={h} />
-      <Field label="Manufactured On" name="manufacturedOn" value={data.manufacturedOn} onChange={h} placeholder="e.g. Jan 2024" optional shown={data.showManufacturedOn} onToggle={t('showManufacturedOn')} />
+      <Field label="Manufactured On" name="manufacturedOn" value={data.manufacturedOn} onChange={h}
+        placeholder="e.g. Jan 2024" optional shown={data.showManufacturedOn} onToggle={t('showManufacturedOn')} />
       <Field label="Marketed By" name="marketedBy" value={data.marketedBy} onChange={h} multiline />
       <ManufacturerField value={data.manufacturedBy} onChange={(v) => onChange({ ...data, manufacturedBy: v })} />
     </div>
@@ -510,12 +513,27 @@ function OuterForm({ data, onChange }) {
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [labelType, setLabelType] = useState('inner')
-  const [innerData, setInnerData] = useState(makeInnerState)
-  const [outerData, setOuterData] = useState(makeOuterState)
-  const labelRef = React.useRef(null)
-  const isInner = labelType === 'inner'
-  const handleExport = useCallback(() => generateSVGExport(labelRef), [])
+  const [labelType,   setLabelType]   = useState('inner')
+  const [innerData,   setInnerData]   = useState(makeInnerState)
+  const [outerData,   setOuterData]   = useState(makeOuterState)
+  const [exporting,   setExporting]   = useState(false)
+  const [exportError, setExportError] = useState(null)
+  const labelRef = useRef(null)
+  const isInner  = labelType === 'inner'
+  const activeData = isInner ? innerData : outerData
+
+  const handleExport = useCallback(async () => {
+    setExporting(true)
+    setExportError(null)
+    try {
+      await runExport(labelRef, activeData.productName, labelType)
+    } catch (err) {
+      console.error('Export failed:', err)
+      setExportError('Export failed — ' + (err?.message || 'unknown error. Please try again.'))
+    } finally {
+      setExporting(false)
+    }
+  }, [activeData.productName, labelType])
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#F5F5F0]" style={{ fontFamily: F }}>
@@ -527,15 +545,10 @@ export default function App() {
           <p className="text-xs text-gray-400 mt-0.5">Native × Urban Company</p>
           <div className="mt-4 flex rounded-xl overflow-hidden border border-gray-200 bg-gray-50 p-1 gap-1">
             {['inner', 'outer'].map((type) => (
-              <button
-                key={type}
-                onClick={() => setLabelType(type)}
+              <button key={type} onClick={() => { setLabelType(type); setExportError(null) }}
                 className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all duration-200 ${
-                  labelType === type
-                    ? 'bg-white text-indigo-600 shadow-sm ring-1 ring-gray-200'
-                    : 'text-gray-400 hover:text-gray-600'
-                }`}
-              >
+                  labelType === type ? 'bg-white text-indigo-600 shadow-sm ring-1 ring-gray-200' : 'text-gray-400 hover:text-gray-600'
+                }`}>
                 {type === 'inner' ? 'Inner LM' : 'Outer LM'}
               </button>
             ))}
@@ -549,19 +562,49 @@ export default function App() {
           }
         </div>
 
-        <div className="px-6 py-4 border-t border-gray-100 flex gap-2">
-          <button
-            onClick={() => isInner ? setInnerData(makeInnerState()) : setOuterData(makeOuterState())}
-            className="flex-1 py-2.5 text-xs font-semibold text-gray-500 rounded-xl border border-gray-200 hover:border-gray-300 hover:text-gray-700 transition"
-          >
-            Reset
-          </button>
-          <button
-            onClick={handleExport}
-            className="flex-1 py-2.5 text-xs font-semibold text-white rounded-xl bg-indigo-500 hover:bg-indigo-600 transition"
-          >
-            Export SVG
-          </button>
+        {/* Footer — reset + export */}
+        <div className="px-6 py-4 border-t border-gray-100 flex flex-col gap-2">
+          <div className="flex gap-2">
+            <button
+              onClick={() => { isInner ? setInnerData(makeInnerState()) : setOuterData(makeOuterState()); setExportError(null) }}
+              className="flex-1 py-2.5 text-xs font-semibold text-gray-500 rounded-xl border border-gray-200 hover:border-gray-300 hover:text-gray-700 transition"
+            >
+              Reset
+            </button>
+            <button
+              onClick={handleExport}
+              disabled={exporting}
+              className={`flex-1 py-2.5 text-xs font-semibold text-white rounded-xl transition flex items-center justify-center gap-1.5 ${
+                exporting ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-500 hover:bg-indigo-600'
+              }`}
+            >
+              {exporting ? (
+                <>
+                  <svg className="animate-spin h-3 w-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                  </svg>
+                  Exporting…
+                </>
+              ) : (
+                'Export SVG + PDF'
+              )}
+            </button>
+          </div>
+
+          {/* Filename preview */}
+          {!exportError && (
+            <p className="text-xs text-gray-400 text-center truncate">
+              {activeData.productName || 'Untitled'} ({isInner ? 'Inner LM' : 'Outer LM'})
+            </p>
+          )}
+
+          {/* Error message */}
+          {exportError && (
+            <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-600 leading-relaxed">
+              {exportError}
+            </div>
+          )}
         </div>
       </aside>
 
@@ -578,13 +621,13 @@ export default function App() {
           </div>
 
           <div
-            style={{
-              width: 320, height: 320,
-              boxShadow: '0 0 0 1.5px #CBD5E1, 0 4px 24px 0 rgba(0,0,0,0.08)',
-              borderRadius: 2, overflow: 'hidden', background: '#FFFFFF',
-              outline: '2px dashed #CBD5E1', outlineOffset: 4,
-            }}
             ref={labelRef}
+            style={{
+              width:320, height:320,
+              boxShadow:'0 0 0 1.5px #CBD5E1, 0 4px 24px 0 rgba(0,0,0,0.08)',
+              borderRadius:2, overflow:'hidden', background:'#FFFFFF',
+              outline:'2px dashed #CBD5E1', outlineOffset:4,
+            }}
           >
             {isInner ? <InnerLabel data={innerData} /> : <OuterLabel data={outerData} />}
           </div>
