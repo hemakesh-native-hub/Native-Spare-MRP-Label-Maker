@@ -462,13 +462,13 @@ function DimensionField({ label, value, onChange, placeholder='e.g. 120 × 120',
 function LabelRow({ label, value, isLast=false }) {
   return (
     <div>
-      <div style={{ display:'flex', alignItems:'flex-start', paddingTop:0, paddingBottom:4 }}>
+      <div style={{ display:'flex', alignItems:'flex-start', paddingTop:0, paddingBottom:3 }}>
         <div style={{ width:80, minWidth:80, fontSize:5, fontWeight:600, color:'#757575', lineHeight:1.5, fontFamily:F, paddingRight:6, flexShrink:0 }}>{label}</div>
         <div style={{ flex:1, fontSize:5, fontWeight:400, color:'#757575', lineHeight:1.5, fontFamily:F }}>{value}</div>
       </div>
       {!isLast && (
         <>
-        <div style={{ height:0.5, background:'#FFFFFF', paddingTop:4 }} />
+        <div style={{ height:0.5, background:'#FFFFFF', paddingTop:3 }} />
         <div style={{ height:0.5, background:'#EEEEEE' }} />
         </>
       )}
@@ -506,7 +506,7 @@ function InnerLabel({ data }) {
     { label:'Customer care',        value:data.customerCare },
   ]
   return (
-    <div style={{ width:320, height:320, background:'#FFFFFF', padding:'0px 20px 16px 20px', display:'flex', flexDirection:'column', boxSizing:'border-box', fontFamily:F }}>
+    <div style={{ width:320, height:320, background:'#FFFFFF', padding:'8px 20px 16px 20px', display:'flex', flexDirection:'column', boxSizing:'border-box', fontFamily:F }}>
       <div style={{ fontSize:14, fontWeight:500, color:'#757575', lineHeight:1.8, marginBottom:4, fontFamily:F, flexShrink:0 }}>
         {data.productName || <span style={{ color:'#D1D5DB' }}>Product Name</span>}
       </div>
@@ -533,7 +533,7 @@ function OuterLabel({ data }) {
     { label:'Manufactured by',            value:data.manufacturedBy },
   ]
   return (
-    <div style={{ width:320, height:320, background:'#FFFFFF', padding:'0px 20px 16px 20px', display:'flex', flexDirection:'column', boxSizing:'border-box', fontFamily:F }}>
+    <div style={{ width:320, height:320, background:'#FFFFFF', padding:'8px 20px 16px 20px', display:'flex', flexDirection:'column', boxSizing:'border-box', fontFamily:F }}>
       <div style={{ fontSize:14, fontWeight:500, color:'#757575', lineHeight:1.8, marginBottom:4, fontFamily:F, flexShrink:0 }}>
         {data.productName || <span style={{ color:'#D1D5DB' }}>Product Name</span>}
       </div>
